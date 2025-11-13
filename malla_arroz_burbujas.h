@@ -1,487 +1,386 @@
-#ifndef MALLA_ARROZ_BURBUJAS_H
-#define MALLA_ARROZ_BURBUJAS_H
+#ifndef MALLA_ARROZ_BURBUJAS_3D_SIMPLE_H
+#define MALLA_ARROZ_BURBUJAS_3D_SIMPLE_H
 
-#include "cilindro_3d.h"
-#include <Eigen/Dense>
+#include "Cilindro3D.h"
 #include <vector>
 #include <random>
 #include <cmath>
 #include <fstream>
+#include <algorithm>
 
-class Burbuja {
+class Burbuja3D {
 public:
-    double r, z;        // Posición en coordenadas cilíndricas
-    double radio;       // Tamaño de la burbuja
-    bool activa;        // Si la burbuja sigue activa
-    int id;             // Identificador único
+    double x, y, z;
+    double radio;
+    bool activa;
+    int id;
     
-    Burbuja(double r, double z, double radio = 1.0, int id = 0) 
-        : r(r), z(z), radio(radio), activa(true), id(id) {}
+    Burbuja3D(double x, double y, double z, double radio = 1.0, int id = 0) 
+        : x(x), y(y), z(z), radio(radio), activa(true), id(id) {}
+    
+    void aCilindricas(double& r, double& theta, double& z_out) const {
+        r = std::sqrt(x*x + y*y);
+        theta = std::atan2(y, x);
+        z_out = z;
+    }
+    
+    double distancia(const Burbuja3D& otra) const {
+        double dx = x - otra.x;
+        double dy = y - otra.y;
+        double dz = z - otra.z;
+        return std::sqrt(dx*dx + dy*dy + dz*dz);
+    }
 };
 
-class MallaArrozBurbujas{
+class MallaArrozBurbujas3DSimple {
 private:
-    Cilindro3D& cilindro;  // Referencia al cilindro con convección
-    Eigen::MatrixXd masa_arroz;  // Masa de arroz en cada celda (r,z)
-    Eigen::MatrixXi ocupado_por_burbuja;  // 1 si hay burbuja, 0 si no
+    Cilindro3DEvolutivo& cilindro;
     
-    std::vector<Burbuja> burbujas;
+    // Malla 3D simple usando vectores anidados (sin Eigen::Tensor)
+    int nx, ny, nz;
+    double dx, dy, dz;
+    std::vector<std::vector<std::vector<double>>> masa_arroz;
+    std::vector<std::vector<std::vector<int>>> ocupado_por_burbuja;
+    
+    std::vector<Burbuja3D> burbujas;
     int siguiente_id_burbuja;
     
-    // Generador de números aleatorios
     std::mt19937 generador;
     std::uniform_real_distribution<double> distribucion;
     
-    // Parámetros de simulación
     double flotabilidad_base;
     double factor_conveccion;
     double masa_inicial_arroz;
     double temperatura_umbral_burbujas;
+    
+    double x_min, x_max, y_min, y_max, z_min, z_max;
 
 public:
-    MallaArrozBurbujas(Cilindro3D& cil, double masa_inicial = 1.0) 
-        : cilindro(cil), 
-          masa_arroz(Eigen::MatrixXd::Constant(cil.getAltura(), cil.getRadio() + 1, masa_inicial)),
-          ocupado_por_burbuja(Eigen::MatrixXi::Zero(cil.getAltura(), cil.getRadio() + 1)),
+    MallaArrozBurbujas3DSimple(Cilindro3DEvolutivo& cil, int res_x = 30, int res_y = 30, int res_z = 20, 
+                              double masa_inicial = 1.0) 
+        : cilindro(cil), nx(res_x), ny(res_y), nz(res_z),
           siguiente_id_burbuja(0),
           generador(std::random_device{}()),
           distribucion(0.0, 1.0),
           flotabilidad_base(0.1),
           factor_conveccion(1.0),
           masa_inicial_arroz(masa_inicial),
-          temperatura_umbral_burbujas(50.0){}
-
-    // Obtener masa en posición (r,z)
-    double getMasaArroz(double r, double z) const {
-        int r_idx = static_cast<int>(r);
-        int z_idx = static_cast<int>(z);
+          temperatura_umbral_burbujas(50.0) {
         
-        if (r_idx < 0 || r_idx > cilindro.getRadio() || z_idx < 0 || z_idx >= cilindro.getAltura()) {
-            return 0.0;
-        }
-        return masa_arroz(z_idx, r_idx);
+        // Calcular límites
+        double radio = cilindro.getRadio();
+        double altura = cilindro.getAltura();
+        
+        x_min = -radio; x_max = radio;
+        y_min = -radio; y_max = radio; 
+        z_min = 0; z_max = altura;
+        
+        dx = (x_max - x_min) / (nx - 1);
+        dy = (y_max - y_min) / (ny - 1);
+        dz = (z_max - z_min) / (nz - 1);
+        
+        // Inicializar malla 3D
+        inicializarMalla3D(masa_inicial);
     }
-
-    // Establecer masa en posición (r,z)
-    void setMasaArroz(double r, double z, double masa) {
-        int r_idx = static_cast<int>(r);
-        int z_idx = static_cast<int>(z);
-        
-        if (r_idx >= 0 && r_idx <= cilindro.getRadio() && z_idx >= 0 && z_idx < cilindro.getAltura()) {
-            masa_arroz(z_idx, r_idx) = masa;
-        }
-    }
-
-    // Redistribuir masa cuando una burbuja se mueve
-    void redistribuirMasa(double r_vieja, double z_vieja, double r_nueva, double z_nueva) {
-        int r_old = static_cast<int>(r_vieja);
-        int z_old = static_cast<int>(z_vieja);
-        int r_new = static_cast<int>(r_nueva);
-        int z_new = static_cast<int>(z_nueva);
-        
-        // Liberar la posición vieja (masa = 0 donde pasó la burbuja)
-        if (r_old >= 0 && r_old <= cilindro.getRadio() && z_old >= 0 && z_old < cilindro.getAltura()) {
-            masa_arroz(z_old, r_old) = 0.0;
-            ocupado_por_burbuja(z_old, r_old) = 0;
-        }
-        
-        // Marcar nueva posición como ocupada
-        if (r_new >= 0 && r_new <= cilindro.getRadio() && z_new >= 0 && z_new < cilindro.getAltura()) {
-            ocupado_por_burbuja(z_new, r_new) = 1;
-        }
-        
-        // Redistribuir masa a celdas vecinas (conservación)
-        redistribuirMasaVecinos(r_old, z_old);
-    }
-
+    
 private:
-    void redistribuirMasaVecinos(int r_centro, int z_centro) {
-        double masa_total_redistribuir = masa_inicial_arroz;
-        int vecinos_validos = 0;
-        
-        // Contar vecinos válidos
-        for (int dz = -1; dz <= 1; ++dz) {
-            for (int dr = -1; dr <= 1; ++dr) {
-                if (dr == 0 && dz == 0) continue; // Saltar el centro
-                
-                int r_vecino = r_centro + dr;
-                int z_vecino = z_centro + dz;
-                
-                if (esPosicionValida(r_vecino, z_vecino) && ocupado_por_burbuja(z_vecino, r_vecino) == 0) {
-                    vecinos_validos++;
-                }
-            }
-        }
-        
-        if (vecinos_validos == 0) return;
-        
-        double masa_por_vecino = masa_total_redistribuir / vecinos_validos;
-        
-        // Distribuir masa a vecinos
-        for (int dz = -1; dz <= 1; ++dz) {
-            for (int dr = -1; dr <= 1; ++dr) {
-                if (dr == 0 && dz == 0) continue;
-                
-                int r_vecino = r_centro + dr;
-                int z_vecino = z_centro + dz;
-                
-                if (esPosicionValida(r_vecino, z_vecino) && ocupado_por_burbuja(z_vecino, r_vecino) == 0) {
-                    masa_arroz(z_vecino, r_vecino) += masa_por_vecino;
-                }
-            }
-        }
+    void inicializarMalla3D(double masa_inicial) {
+        masa_arroz.resize(nx, std::vector<std::vector<double>>(ny, std::vector<double>(nz, masa_inicial)));
+        ocupado_por_burbuja.resize(nx, std::vector<std::vector<int>>(ny, std::vector<int>(nz, 0)));
     }
-
-    bool esPosicionValida(int r, int z) const {
-        return (r >= 0 && r <= cilindro.getRadio() && z >= 0 && z < cilindro.getAltura());
+    
+    void aIndices(double x, double y, double z, int& i, int& j, int& k) const {
+        i = static_cast<int>((x - x_min) / dx);
+        j = static_cast<int>((y - y_min) / dy);
+        k = static_cast<int>((z - z_min) / dz);
+        
+        i = std::max(0, std::min(nx - 1, i));
+        j = std::max(0, std::min(ny - 1, j));
+        k = std::max(0, std::min(nz - 1, k));
+    }
+    
+    bool estaDentroCilindro(double x, double y, double z) const {
+        double r = std::sqrt(x*x + y*y);
+        return (r <= cilindro.getRadio() && z >= 0 && z <= cilindro.getAltura());
+    }
+    
+    bool esPosicionValida(double x, double y, double z) const {
+        return estaDentroCilindro(x, y, z);
     }
 
 public:
-     void generarBurbujasSuperficie(int max_burbujas_por_paso = 5){
-        if(max_burbujas_por_paso < = 0) return;
+    double getMasaArroz(double x, double y, double z) const {
+        int i, j, k;
+        aIndices(x, y, z, i, j, k);
+        return masa_arroz[i][j][k];
+    }
+    
+    void setMasaArroz(double x, double y, double z, double masa) {
+        int i, j, k;
+        aIndices(x, y, z, i, j, k);
+        if (estaDentroCilindro(x, y, z)) {
+            masa_arroz[i][j][k] = masa;
+        }
+    }
+    
+    bool estaOcupadoPorBurbuja(double x, double y, double z) const {
+        int i, j, k;
+        aIndices(x, y, z, i, j, k);
+        return ocupado_por_burbuja[i][j][k] == 1;
+    }
+
+    // ===== GENERACIÓN DE BURBUJAS =====
+    void generarBurbujasSuperficie3D(int max_burbujas_por_paso = 3) {
+        if (max_burbujas_por_paso <= 0) return;
+        
         int burbujas_generadas = 0;
-
-        // 1. Construir distribucion de probabilidad sobre toda la superficie
-        std::vector<std::pair<int, int>> posiciones_validas,
-        std::vector<double> probabilidades;
-        double suma_total = 0.0;
-
-        // Considerar TODAS las posiciones de la superficie interna
-        for (int r = 0; r <= cilindro.getRadio(); ++r) {
-            for (int z = 0; z < cilindro.getAltura(); ++z) {
-                // Solo considerar posiciones de superficie (fondo o paredes)
-                if (!esPosicionSuperficie(r, z)) continue;
+        
+        // Generar en puntos aleatorios de la superficie
+        for (int intento = 0; intento < max_burbujas_por_paso * 10 && burbujas_generadas < max_burbujas_por_paso; ++intento) {
+            // Elegir aleatoriamente entre fondo y paredes
+            if (distribucion(generador) < 0.7) {
+                // Fondo
+                double theta = 2.0 * M_PI * distribucion(generador);
+                double r = cilindro.getRadio() * 0.8 * distribucion(generador); // No todo el radio
+                double x = r * std::cos(theta);
+                double y = r * std::sin(theta);
+                double z = 0.0;
                 
-                // Verificar que no esté ocupada
-                if (estaOcupadoPorBurbuja(r, z)) continue;
+                if (!estaOcupadoPorBurbuja(x, y, z)) {
+                    double temp = cilindro.getTemperaturaCartesianas(x, y, z);
+                    if (temp > temperatura_umbral_burbujas && distribucion(generador) < 0.3) {
+                        generarBurbujaEnPosicion3D(x, y, z, temp);
+                        burbujas_generadas++;
+                    }
+                }
+            } else {
+                // Paredes
+                double theta = 2.0 * M_PI * distribucion(generador);
+                double z = cilindro.getAltura() * distribucion(generador) * 0.5; // Mitad inferior
+                double x = cilindro.getRadio() * std::cos(theta);
+                double y = cilindro.getRadio() * std::sin(theta);
                 
-                double temperatura = cilindro.getTemperatura(r, z);
-                double probabilidad = calcularProbabilidadTemperatura(temperatura);
-                
-                if (probabilidad > 0.0) {
-                    posiciones_validas.emplace_back(r, z);
-                    probabilidades.push_back(probabilidad);
-                    suma_total += probabilidad;
+                if (!estaOcupadoPorBurbuja(x, y, z)) {
+                    double temp = cilindro.getTemperaturaCartesianas(x, y, z);
+                    if (temp > temperatura_umbral_burbujas && distribucion(generador) < 0.2) {
+                        generarBurbujaEnPosicion3D(x, y, z, temp);
+                        burbujas_generadas++;
+                    }
                 }
             }
         }
-
-        // Si no hay posiciones validas, no genere burbujas
-        if (posiciones_validas.empty() || suma_total <= 0.0) {
-            return; // No hay posiciones válidas
-        }
-
-        // 2. Normalizar probabilidades
-        for (double& prob : probabilidades) {
-            prob /= suma_total;
-        }
-
-        // 3. Crear distribucion discreta para selccion aleatoria
-        std::discrete_distribution<int> distribucion_burbujas(probabilidades.begin(), probabilidades.end());
-
-        // 4. Generar burbujas usando la distribucion
-        int burbujas_generadas = 0;
-        int intentos_maximos = max_burbujas_por_paso * 10;
-        int intentos = 0;
-        while (burbujas_generadas < max_burbujas_por_paso && intentos < intentos_maximos){
-            intentos++;
-
-            // Seleccionar posicion aleatoria segun distribucion de probabilidad
-            int indice = distribucion_burbujas(generador);
-            int r = posiciones_validas[indice].first;
-            int z = posiciones_validas[indice].second;
-
-            // Verificar que todavía esté disponible (podría haber cambiado)
-            if (estaOcupadoPorBurbuja(r, z)) {
-                // Recalcular distribución si muchas posiciones se ocuparon
-                if (intentos % 5 == 0) {
-                    return;
-                }
-                continue;
-            }
-
-            // Generar la burbuja
-            double temperatura = cilindro.getTemperatura(r, z);
-            std::string tipo = obtenerTipoSuperficie(r, z);
-            generarBurbujaEnPosicion(r, z, temperatura, tipo);
-            burbujas_generadas++;
+        
+        if (burbujas_generadas > 0) {
+            std::cout << "  Generadas " << burbujas_generadas << " burbujas" << std::endl;
         }
     }
 
 private:
-    // Verificar si una posicion es de superficie (fondo o paredes de la olla)
-    bool esPosicionSuperficie(int r, int z) const {
-        // Fondo de la olla
-        if (z == 0) return true;
-
-        // Paredes laterales
-        if (r == cilindro.getRadio()) return true;
-
-        return false;
-    }
-
-    // Calcular probabilidad basada en temperatura
-    double calcularProbabilidadTemperatura(double temperatura) const {
-        if (temperatura < temperatura_umbral_burbujas){
-            return 0.0;
-        }
-
-        // Funcion no lineal sensible a cambios en temperaturas altas
-        double normalizada = (temperatura - temperatura_umbral_burbujas) / (120.0 - temperatura_umbral_burbujas); // 120°C como maximo
-
-        normalizada = std::min(1.0, std::max(0.0, normalizada));
-
-        // Funcion exponencial donde pequeñas diferencias en temperatura alta generan grandes diferencias en probabilidad
-        double probabilidad = std::pow(normalizada, 2.0)
-
-        // Suavizar con funcion sigmoide
-        probabilidad = 1.0 / (1 + std::exp(-4.0 * (probabilidad - 0.5)));
-
-        return probabilidad;
-    }
-
-    // Determinar tipo de superficie
-    std::string obtenerTipoSuperficie(int, r, int z) const {
-        if (z == 0) return "FONDO";
-        if (r == cilindro.getRadio()) return "PARED";
-        if (r == 0) return "EJE";
-        return "INTERIOR";
+    void generarBurbujaEnPosicion3D(double x, double y, double z, double temperatura) {
+        Burbuja3D nueva_burbuja(x, y, z, 0.5, siguiente_id_burbuja++);
+        burbujas.push_back(nueva_burbuja);
+        
+        int i, j, k;
+        aIndices(x, y, z, i, j, k);
+        ocupado_por_burbuja[i][j][k] = 1;
     }
 
 public:
-    void moverBurbujas(double dt = 1.0){
-        // Verificar coalescencia antes de mover burbujas
-        verificarCoalescencia();
-
-        for (auto& burbuja : burbujas){
-            if(!burbuja.activa) continue;
-
-            moverBurbuja(burbuja, dt);
+    // ===== MOVIMIENTO 3D =====
+    void moverBurbujas3D(double dt = 1.0) {
+        verificarCoalescencia3D();
+        
+        for (auto& burbuja : burbujas) {
+            if (!burbuja.activa) continue;
+            moverBurbuja3D(burbuja, dt);
         }
-
-        // Eliminar burbujas inactivas
+        
+        // Limpiar inactivas
         burbujas.erase(
-            std::remove_if(burbujas.begin(), burbujas.end(), 
-                         [](const Burbuja& b) { return !b.activa; }),
+            std::remove_if(burbujas.begin(), burbujas.end(),
+                         [](const Burbuja3D& b) { return !b.activa; }),
             burbujas.end()
         );
     }
 
 private:
-    // Compara cada par de burbujas activas
-    void verificarCoalescencia() {
+    void moverBurbuja3D(Burbuja3D& burbuja, double dt) {
+        double x_old = burbuja.x, y_old = burbuja.y, z_old = burbuja.z;
+        
+        // Movimiento simplificado
+        double dx = (distribucion(generador) - 0.5) * 0.5;
+        double dy = (distribucion(generador) - 0.5) * 0.5;
+        double dz = 1.0;
+        
+        double x_new = burbuja.x + dx * dt;
+        double y_new = burbuja.y + dy * dt;
+        double z_new = burbuja.z + dz * dt;
+        
+        // Verificar límites más estrictamente
+        if (!esPosicionValida(x_new, y_new, z_new)) {
+            return;
+        }
+        
+        if (z_new >= cilindro.getAltura()) {
+            // CORRECCIÓN: Cuando llega a la superficie, mantener la masa
+            // No llamar a redistribuirMasa3D que podría perder masa
+            burbuja.activa = false;
+            
+            // Liberar la posición pero mantener la masa
+            int i_old, j_old, k_old;
+            aIndices(x_old, y_old, z_old, i_old, j_old, k_old);
+            ocupado_por_burbuja[i_old][j_old][k_old] = 0;
+            return;
+        }
+        
+        if (estaOcupadoPorBurbuja(x_new, y_new, z_new)) {
+            return;
+        }
+        
+        // Actualizar posición y redistribuir masa
+        burbuja.x = x_new;
+        burbuja.y = y_new;
+        burbuja.z = z_new;
+        redistribuirMasa3D(x_old, y_old, z_old, x_new, y_new, z_new);
+    }
+
+    void verificarCoalescencia3D() {
         for (size_t i = 0; i < burbujas.size(); ++i) {
             if (!burbujas[i].activa) continue;
             
             for (size_t j = i + 1; j < burbujas.size(); ++j) {
                 if (!burbujas[j].activa) continue;
                 
-                if (debenCoalescer(burbujas[i], burbujas[j])) {
-                    coalescerBurbujas(burbujas[i], burbujas[j]);
+                if (burbujas[i].distancia(burbujas[j]) < 1.0) {
+                    coalescerBurbujas3D(burbujas[i], burbujas[j]);
                 }
             }
         }
     }
-
-    bool debenCoalescer(const Burbuja& b1, const Burbuja& b2) const {
-        // Coalescer si están en la misma celda o muy cercanas
-        double distancia_r = std::abs(b1.r - b2.r);
-        double distancia_z = std::abs(b1.z - b2.z);
+    
+    void coalescerBurbujas3D(Burbuja3D& b1, Burbuja3D& b2) {
+        // Fusionar conservando volumen
+        double vol1 = std::pow(b1.radio, 3);
+        double vol2 = std::pow(b2.radio, 3);
+        double vol_total = vol1 + vol2;
+        b1.radio = std::cbrt(vol_total);
         
-        // Misma celda o celdas adyacentes
-        return (distancia_r <= 1.0 && distancia_z <= 1.0);
-    }
-
-    void coalescerBurbujas(Burbuja& b1, Burbuja& b2) {
-        // Fusionar b2 en b1
-        b1.radio = std::sqrt(b1.radio * b1.radio + b2.radio * b2.radio); // Conservar área
-        // b1.r y b1.z se mantienen (o puedes promediar)
+        // Promediar posición
+        b1.x = (b1.x + b2.x) / 2.0;
+        b1.y = (b1.y + b2.y) / 2.0;
+        b1.z = (b1.z + b2.z) / 2.0;
         
-        // Marcar b2 como inactiva
+        // CORRECCIÓN: Manejar la masa de b2 al coalescer
+        double masa_b2 = getMasaArroz(b2.x, b2.y, b2.z);
+        double masa_b1 = getMasaArroz(b1.x, b1.y, b1.z);
+        
+        // Transferir masa de b2 a b1
+        setMasaArroz(b1.x, b1.y, b1.z, masa_b1 + masa_b2);
+        
+        // Liberar posición de b2
+        int i, j, k;
+        aIndices(b2.x, b2.y, b2.z, i, j, k);
+        masa_arroz[i][j][k] = 0.0;  // Asegurar que se pone a cero
+        ocupado_por_burbuja[i][j][k] = 0;
+        
         b2.activa = false;
-        
-        // Liberar la posición de b2
-        int r2 = static_cast<int>(b2.r);
-        int z2 = static_cast<int>(b2.z);
-        if (esPosicionValida(r2, z2)) {
-            ocupado_por_burbuja(z2, r2) = 0;
-            // Redistribuir masa de la posición liberada
-            redistribuirMasaVecinos(r2, z2);
-        }
     }
 
-    void moverBurbuja(Burbuja& burbuja, double dt){
-        double r_old = burbuja.r;
-        double z_old = burbuja.z;
-
-        // Calcular probabilidades de movimiento
-        std::vector<std::pair<double, double>> direcciones; // (dr, dz)
-        std::vector<double> probabilidades;
-
-        calcularProbabilidadesMovimiento(burbuja.r, burbuja.z, direcciones, probabilidades);
-
-        if (probabilidades.empty()){
-            burbuja.activa = false;
-            return;
-        }
-
-        // Seleccionar movimiento basado en probabilidades
-        double aleatorio = distribucion(generador);
-        double acumulado = 0.0;
-        int direccion_elegida = -1;
+    void redistribuirMasa3D(double x_old, double y_old, double z_old,
+                           double x_new, double y_new, double z_new) {
+        int i_old, j_old, k_old;
+        int i_new, j_new, k_new;
         
-        for (size_t i = 0; i < probabilidades.size(); ++i) {
-            acumulado += probabilidades[i];
-            if (aleatorio <= acumulado) {
-                direccion_elegida = i;
-                break;
-            }
-        }
-
-        if (direccion_elegida == -1) {
-            direccion_elegida = probabilidades.size() - 1;
-        }
-
-        // Aplicar movimiento
-        double dr = direcciones[direccion_elegida].first;
-        double dz = direcciones[direccion_elegida].second;
-
-        double r_new = burbuja.r + dr;
-        double z_new = burbuja.z + dz;
-
-        // Verificar que no baje de altura y esté dentro de límites
-        if (z_new < burbuja.z) {
-            z_new = burbuja.z; // No puede bajar
-        }
-
-        if (r_new < 0) r_new = 0;
-        if (r_new > cilindro.getRadio()) r_new = cilindro.getRadio();
-        if (z_new >= cilindro.getAltura()) {
-            // Burbuja llegó a la superficie - desaparece
-            redistribuirMasa(r_old, z_old, r_new, z_new);
-            burbuja.activa = false;
-            std::cout << "Burbuja " << burbuja.id << " llegó a la superficie" << std::endl;
+        aIndices(x_old, y_old, z_old, i_old, j_old, k_old);
+        aIndices(x_new, y_new, z_new, i_new, j_new, k_new);
+        
+        // Solo redistribuir si es una posición válida dentro del cilindro
+        if (!estaDentroCilindro(x_new, y_new, z_new)) {
+            // Si la nueva posición está fuera, mantener la masa en la posición vieja
             return;
-        }
-
-        // Verificar que la nueva posicion no este ocupada
-        int r_new_idx = static_cast<int>(r_new);
-        int z_new_idx = static_cast<int>(z_new);
-
-        if (ocupado_por_burbuja(z_new_idx, r_new_idx) == 1) {
-            // Posición ocupada - no se mueve
-            return;
-        }
-
-        // Actualizar posición y redistribuir masa
-        burbuja.r = r_new;
-        burbuja.z = z_new;
-        redistribuirMasa(r_old, z_old, r_new, z_new);
-    }
-
-    void calcularProbabilidadesMovimiento(double r, double z, 
-                                        std::vector<std::pair<double, double>>& direcciones,
-                                        std::vector<double>& probabilidades){
-        direcciones.clear();
-        probabilidades.clear();
-
-        // Direcciones posibles: arriba, arriba-izquierda, arriba-derecha
-        std::vector<std::pair<double, double>> movimientos_posibles = {
-            {0.0, 1.0},    // Arriba
-            {-1.0, 1.0},   // Arriba-izquierda  
-            {1.0, 1.0}     // Arriba-derecha
-        };
-
-        // Obtener velocidades de convección
-        double v_r = cilindro.getVelocidadRadial(static_cast<int>(r), static_cast<int>(z));
-        double v_z = cilindro.getVelocidadVertical(static_cast<int>(r), static_cast<int>(z));
-
-        for (const auto& movimiento : movimientos_posibles){
-            double dr = movimiento.first;
-            double dz = movimiento.second;
-            
-            double r_new = r + dr;
-            double z_new = z + dz;
-
-            // Verificar límites
-            if (r_new < 0 || r_new > cilindro.getRadio() || z_new >= cilindro.getAltura()) {
-                continue;
-            }
-
-            // Verificar que no esté ocupado
-            int r_idx = static_cast<int>(r_new);
-            int z_idx = static_cast<int>(z_new);
-            if (ocupado_por_burbuja(z_idx, r_idx) == 1) {
-                continue;
-            }
-
-            // Calcular probabilidad base (inversamente proporcional a masa)
-            double masa_destino = getMasaArroz(r_new, z_new);
-            double prob_base = 1.0 / (1.0 + masa_destino);
-
-            // Efecto de convección (proporcional a velocidad en esa dirección)
-            double efecto_conveccion = 1.0 + factor_conveccion * (v_r * dr + v_z * dz);
-
-            // Efecto de flotabilidad (siempre favorece subir)
-            double efecto_flotabilidad = (dz > 0) ? (1.0 + flotabilidad_base) : 1.0;
-
-            double probabilidad_total = prob_base * efecto_conveccion * efecto_flotabilidad;
-
-            direcciones.push_back(movimiento);
-            probabilidades.push_back(probabilidad_total);
-        }
-
-        // Normalizar probabilidades
-        double suma = 0.0;
-        for (double prob : probabilidades) {
-            suma += prob;
         }
         
-        if (suma > 0) {
-            for (double& prob : probabilidades) {
-                prob /= suma;
-            }
+        double masa_vieja = masa_arroz[i_old][j_old][k_old];
+        
+        // SOLUCIÓN CORREGIDA: SUMAR la masa en lugar de reemplazarla
+        if (i_old != i_new || j_old != j_new || k_old != k_new) {
+            // Sumar la masa a la nueva posición (no reemplazar)
+            masa_arroz[i_new][j_new][k_new] += masa_vieja;
+            // Solo poner a cero la posición vieja si no es la misma
+            masa_arroz[i_old][j_old][k_old] = 0.0;
         }
+        
+        // Actualizar ocupación
+        ocupado_por_burbuja[i_old][j_old][k_old] = 0;
+        ocupado_por_burbuja[i_new][j_new][k_new] = 1;
     }
+
 
 public:
-    // Visualizacion y estadisticas
-
-    void exportarEstadoCompleto(const std::string& nombre_archivo) const {
+    // ===== VISUALIZACIÓN =====
+    void exportarEstadoCompleto3D(const std::string& nombre_archivo) const {
         std::ofstream archivo(nombre_archivo);
-        archivo << "r z temperatura masa_arroz ocupado_burbuja v_r v_z" << std::endl;
+        archivo << "x y z temperatura masa_arroz ocupado_burbuja" << std::endl;
         
-        for (int z = 0; z < cilindro.getAltura(); ++z) {
-            for (int r = 0; r <= cilindro.getRadio(); ++r) {
-                archivo << r << " " << z << " " 
-                       << cilindro.getTemperatura(r, z) << " "
-                       << masa_arroz(z, r) << " "
-                       << ocupado_por_burbuja(z, r) << " "
-                       << cilindro.getVelocidadRadial(r, z) << " "
-                       << cilindro.getVelocidadVertical(r, z) << std::endl;
+        for (int i = 0; i < nx; ++i) {
+            for (int j = 0; j < ny; ++j) {
+                for (int k = 0; k < nz; ++k) {
+                    double x = x_min + i * dx;
+                    double y = y_min + j * dy;
+                    double z_val = z_min + k * dz;
+                    
+                    if (estaDentroCilindro(x, y, z_val)) {
+                        double temp = cilindro.getTemperaturaCartesianas(x, y, z_val);
+                        archivo << x << " " << y << " " << z_val << " "
+                               << temp << " "
+                               << masa_arroz[i][j][k] << " "
+                               << ocupado_por_burbuja[i][j][k] << std::endl;
+                    }
+                }
             }
         }
         archivo.close();
     }
-
-    void imprimirEstadisticas() const {
-        std::cout << "=== ESTADÍSTICAS MALLA ARROZ ===" << std::endl;
-        std::cout << "Burbujas activas: " << burbujas.size() << std::endl;
-        std::cout << "Masa total arroz: " << masa_arroz.sum() << std::endl;
-        std::cout << "Masa promedio por celda: " << masa_arroz.mean() << std::endl;
-        std::cout << "Celdas ocupadas por burbujas: " << ocupado_por_burbuja.sum() << std::endl;
+    
+    void imprimirEstadisticas3D() const {
+        std::cout << "  Burbujas activas: " << burbujas.size() << std::endl;
+        
+        // Calcular masa total
+        double masa_total = 0.0;
+        for (int i = 0; i < nx; ++i) {
+            for (int j = 0; j < ny; ++j) {
+                for (int k = 0; k < nz; ++k) {
+                    double x = x_min + i * dx;
+                    double y = y_min + j * dy;
+                    double z = z_min + k * dz;
+                    if (estaDentroCilindro(x, y, z)) {
+                        masa_total += masa_arroz[i][j][k];
+                    }
+                }
+            }
+        }
+        std::cout << "  Masa total arroz: " << masa_total << std::endl;
     }
 
     // Getters
-    const std::vector<Burbuja>& getBurbujas() const { return burbujas; }
-    const Eigen::MatrixXd& getMasaArrozRef() const { return masa_arroz; }
-    const Eigen::MatrixXi& getOcupadoBurbujaRef() const { return ocupado_por_burbuja; }
+    const std::vector<Burbuja3D>& getBurbujas() const { return burbujas; }
 
+    double getTemperaturaUmbral() const { 
+        return temperatura_umbral_burbujas; 
+    }
+    
+    double getFlotabilidadBase() const { 
+        return flotabilidad_base; 
+    }
+    
+    double getFactorConveccion() const { 
+        return factor_conveccion; 
+    }
+    
     // Setters
     void setFlotabilidadBase(double flotabilidad) { flotabilidad_base = flotabilidad; }
     void setFactorConveccion(double factor) { factor_conveccion = factor; }
     void setTemperaturaUmbral(double temp) { temperatura_umbral_burbujas = temp; }
-
 };
 
 #endif
