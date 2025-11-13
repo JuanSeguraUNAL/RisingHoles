@@ -2,23 +2,137 @@
 #include <cmath>
 #include <iostream>
 #include <algorithm>
+#include <fstream>
+#include <string>
+#include <sys/stat.h>  // Para mkdir en sistemas Unix
 
-MallaBurbujas3D::MallaBurbujas3D(Cilindro3D& cil, int max_burbujas) 
+// Constructor modificado
+MallaBurbujas3D::MallaBurbujas3D(Cilindro3D& cil, int max_burbujas, const std::string& carpeta) 
     : cilindro(cil), max_burbujas_por_paso(max_burbujas), next_burbuja_id(0),
+      carpeta_resultados(carpeta), paso_actual(0),
       generator(std::random_device{}()), 
       distribution(0.0, 1.0),
       dist_angular(0.0, 2 * M_PI) {
     
+    // Crear carpeta de resultados
+    crearCarpetaResultados();
+    
     // Inicializar mapa de influencia 3D
     int altura = cilindro.getAltura();
     int radio = cilindro.getRadio();
-    int sectores_angulares = 36; // 10 grados por sector
+    int sectores_angulares = 36;
     
     influencia_trayectorias.resize(altura, 
         std::vector<std::vector<double>>(radio, 
-            std::vector<double>(sectores_angulares, 0.0))); // CORREGIDO: sectores_angulares
+            std::vector<double>(sectores_angulares, 0.0)));
 }
 
+// Método para crear la carpeta de resultados (versión simplificada)
+void MallaBurbujas3D::crearCarpetaResultados() const {
+    // Crear directorio principal
+    system(("mkdir -p " + carpeta_resultados).c_str());
+    system(("mkdir -p " + carpeta_resultados + "/influencia").c_str());
+    system(("mkdir -p " + carpeta_resultados + "/burbujas").c_str());
+    system(("mkdir -p " + carpeta_resultados + "/temperatura").c_str());
+    std::cout << "Carpetas de resultados creadas en: " << carpeta_resultados << std::endl;
+}
+
+// Método para guardar el mapa de influencia
+void MallaBurbujas3D::guardarInfluenciaTrayectorias(int paso) const {
+    std::string filename = carpeta_resultados + "/influencia/influencia_paso_" + 
+                          std::to_string(paso) + ".txt";
+    
+    std::ofstream archivo(filename);
+    if (!archivo.is_open()) {
+        std::cerr << "Error abriendo archivo: " << filename << std::endl;
+        return;
+    }
+    
+    int altura = influencia_trayectorias.size();
+    int radio = influencia_trayectorias[0].size();
+    int sectores = influencia_trayectorias[0][0].size();
+    
+    // Encabezado con información de dimensiones
+    archivo << "# Mapa de Influencia de Trayectorias - Paso: " << paso << std::endl;
+    archivo << "# Dimensiones: Altura=" << altura << " Radio=" << radio << " Sectores=" << sectores << std::endl;
+    archivo << "# Formato: altura radio angulo valor_influencia" << std::endl;
+    
+    // Guardar datos
+    for (int h = 0; h < altura; ++h) {
+        for (int r = 0; r < radio; ++r) {
+            for (int theta_idx = 0; theta_idx < sectores; ++theta_idx) {
+                double valor = influencia_trayectorias[h][r][theta_idx];
+                if (valor > 0) {  // Solo guardar valores no cero para ahorrar espacio
+                    double angulo = theta_idx * 2.0 * M_PI / sectores;
+                    archivo << h << " " << r << " " << angulo << " " << valor << std::endl;
+                }
+            }
+        }
+    }
+    
+    archivo.close();
+    std::cout << "Mapa de influencia guardado: " << filename << std::endl;
+}
+
+// Método para guardar estado de las burbujas
+void MallaBurbujas3D::guardarEstadoBurbujas(int paso) const {
+    std::string filename = carpeta_resultados + "/burbujas/burbujas_paso_" + 
+                          std::to_string(paso) + ".txt";
+    
+    std::ofstream archivo(filename);
+    if (!archivo.is_open()) {
+        std::cerr << "Error abriendo archivo: " << filename << std::endl;
+        return;
+    }
+    
+    // Encabezado
+    archivo << "# Estado de Burbujas - Paso: " << paso << std::endl;
+    archivo << "# Formato: id x y z tamano activa" << std::endl;
+    
+    // Guardar datos de cada burbuja
+    for (const auto& burbuja : burbujas) {
+        archivo << burbuja.getId() << " "
+                << burbuja.getPosX() << " "
+                << burbuja.getPosY() << " "
+                << burbuja.getPosZ() << " "
+                << burbuja.getTamano() << " "
+                << (burbuja.isActiva() ? 1 : 0) << std::endl;
+    }
+    
+    archivo.close();
+}
+
+// Método para guardar distribución de temperatura
+void MallaBurbujas3D::guardarTemperatura(int paso, const Cilindro3D& cilindro) const {
+    std::string filename = carpeta_resultados + "/temperatura/temperatura_paso_" + 
+                          std::to_string(paso) + ".txt";
+    
+    std::ofstream archivo(filename);
+    if (!archivo.is_open()) {
+        std::cerr << "Error abriendo archivo: " << filename << std::endl;
+        return;
+    }
+    
+    int altura = cilindro.getAltura();
+    int radio = cilindro.getRadio();
+    
+    // Encabezado
+    archivo << "# Distribución de Temperatura - Paso: " << paso << std::endl;
+    archivo << "# Dimensiones: Altura=" << altura << " Radio=" << radio << std::endl;
+    archivo << "# Formato: altura radio temperatura" << std::endl;
+    
+    // Guardar temperatura en cada punto
+    for (int h = 0; h < altura; ++h) {
+        for (int r = 0; r < radio; ++r) {
+            double temp = cilindro.getTemperatura(h, r);
+            archivo << h << " " << r << " " << temp << std::endl;
+        }
+    }
+    
+    archivo.close();
+}
+
+// El resto de los métodos permanecen igual...
 void MallaBurbujas3D::generarBurbujas() {
     int burbujas_generadas = 0;
     
@@ -75,6 +189,9 @@ void MallaBurbujas3D::moverBurbujas() {
             influencia_trayectorias[h_idx][r_idx][theta_idx] += 1.0;
         }
     }
+    
+    // Incrementar paso después de mover todas las burbujas
+    incrementarPaso();
 }
 
 void MallaBurbujas3D::calcularVelocidadBurbuja(Burbuja3D& burbuja) {

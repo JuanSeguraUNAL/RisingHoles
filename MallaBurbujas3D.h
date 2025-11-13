@@ -23,8 +23,12 @@ private:
     std::uniform_real_distribution<double> distribution;
     std::uniform_real_distribution<double> dist_angular;
 
+    // Para guardar resultados
+    std::string carpeta_resultados;
+    int paso_actual;
+
 public:
-    MallaBurbujas3D(Cilindro3D& cil, int max_burbujas);
+    MallaBurbujas3D(Cilindro3D& cil, int max_burbujas, const std::string& carpeta = "resultados");
     
     // Generación de burbujas en superficies
     void generarBurbujas();
@@ -44,6 +48,18 @@ public:
     
     // Visualización
     void imprimirEstado() const;
+
+    // Nuevos métodos para guardar datos
+    void guardarInfluenciaTrayectorias(int paso) const;
+    void guardarEstadoBurbujas(int paso) const;
+    void guardarTemperatura(int paso, const Cilindro3D& cilindro) const;
+    
+    // Método para crear la carpeta de resultados
+    void crearCarpetaResultados() const;
+    
+    // Getter para el paso actual
+    int getPasoActual() const { return paso_actual; }
+    void incrementarPaso() { paso_actual++; }
 
 private:
     // Métodos auxiliares

@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -O3 -march=native -ffast-math -funroll-loops -DNDEBUG -std=c++11 -I/usr/include/eigen3
+CXXFLAGS = -O3 -march=native -ffast-math -funroll-loops -DNDEBUG -std=c++17 -I/usr/include/eigen3
 TARGET = main_simulation_3d.out
 OBJS = main_simulation_3d.o Cilindro3D.o MallaBurbujas3D.o Burbuja3D.o
 
