@@ -6,6 +6,7 @@ Burbuja3D::Burbuja3D(double x, double y, double z, double size, int identificado
     trayectoria.push_back({x, y, z});
 }
 
+// Agregar en la trayectoria de la burbuja su nueva posicion
 void Burbuja3D::mover(double nueva_x, double nueva_y, double nueva_z) {
     pos_x = nueva_x;
     pos_y = nueva_y;
@@ -13,6 +14,7 @@ void Burbuja3D::mover(double nueva_x, double nueva_y, double nueva_z) {
     trayectoria.push_back({nueva_x, nueva_y, nueva_z});
 }
 
+// La nueva posicion de la burbuja dada una velocidad y guardarla en su trayectoria
 void Burbuja3D::moverConVelocidad(double dt) {
     pos_x += vel_x * dt;
     pos_y += vel_y * dt;
@@ -20,12 +22,14 @@ void Burbuja3D::moverConVelocidad(double dt) {
     trayectoria.push_back({pos_x, pos_y, pos_z});
 }
 
+// Setter para la velocidad
 void Burbuja3D::setVelocidad(double vx, double vy, double vz) {
     vel_x = vx;
     vel_y = vy;
     vel_z = vz;
 }
 
+// Coalescencia con conservacion del volumen y momento de las burbujas
 void Burbuja3D::coalescer(const Burbuja3D& otra) {
     // Conservación de masa (volumen proporcional al cubo del radio)
     double vol1 = tamano * tamano * tamano;
@@ -43,6 +47,7 @@ void Burbuja3D::coalescer(const Burbuja3D& otra) {
     }
 }
 
+// Calcular la distancia entre dos burbujas
 double Burbuja3D::distancia(const Burbuja3D& otra) const {
     double dx = pos_x - otra.pos_x;
     double dy = pos_y - otra.pos_y;

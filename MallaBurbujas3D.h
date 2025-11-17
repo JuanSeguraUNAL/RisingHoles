@@ -49,12 +49,13 @@ public:
     // Visualización
     void imprimirEstado() const;
 
-    // Nuevos métodos para guardar datos
+    // Guardar datos
     void guardarInfluenciaTrayectorias(int paso) const;
+    void guardarGeometriaOlla(const Cilindro3D& cilindro) const;
     void guardarEstadoBurbujas(int paso) const;
     void guardarTemperatura(int paso, const Cilindro3D& cilindro) const;
     
-    // Método para crear la carpeta de resultados
+    // Crear la carpeta de resultados
     void crearCarpetaResultados() const;
     
     // Getter para el paso actual

@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <fstream>
 #include <string>
-#include <sys/stat.h>  // Para mkdir en sistemas Unix
+#include <sys/stat.h>
 
 // Constructor modificado
 MallaBurbujas3D::MallaBurbujas3D(Cilindro3D& cil, int max_burbujas, const std::string& carpeta) 
@@ -34,6 +34,7 @@ void MallaBurbujas3D::crearCarpetaResultados() const {
     system(("mkdir -p " + carpeta_resultados + "/influencia").c_str());
     system(("mkdir -p " + carpeta_resultados + "/burbujas").c_str());
     system(("mkdir -p " + carpeta_resultados + "/temperatura").c_str());
+    system(("mkdir -p " + carpeta_resultados + "/geometria").c_str());
     std::cout << "Carpetas de resultados creadas en: " << carpeta_resultados << std::endl;
 }
 
@@ -55,23 +56,86 @@ void MallaBurbujas3D::guardarInfluenciaTrayectorias(int paso) const {
     // Encabezado con información de dimensiones
     archivo << "# Mapa de Influencia de Trayectorias - Paso: " << paso << std::endl;
     archivo << "# Dimensiones: Altura=" << altura << " Radio=" << radio << " Sectores=" << sectores << std::endl;
-    archivo << "# Formato: altura radio angulo valor_influencia" << std::endl;
+    archivo << "# Formato: altura radio angulo valor_influencia x y z" << std::endl;
+    archivo << "# NOTA: Se guardan TODOS los puntos de la malla (incluso influencia=0)" << std::endl;
     
-    // Guardar datos
+    // Guardar TODOS los datos de la malla
     for (int h = 0; h < altura; ++h) {
         for (int r = 0; r < radio; ++r) {
             for (int theta_idx = 0; theta_idx < sectores; ++theta_idx) {
                 double valor = influencia_trayectorias[h][r][theta_idx];
-                if (valor > 0) {  // Solo guardar valores no cero para ahorrar espacio
-                    double angulo = theta_idx * 2.0 * M_PI / sectores;
-                    archivo << h << " " << r << " " << angulo << " " << valor << std::endl;
-                }
+                double angulo = theta_idx * 2.0 * M_PI / sectores;
+                
+                // Convertir a coordenadas cartesianas para visualización
+                auto pos_cartesian = cilindro.cilindricasToCartesian(h, r, angulo);
+                double x = pos_cartesian[0];
+                double y = pos_cartesian[1];
+                double z = pos_cartesian[2];
+                
+                archivo << h << " " << r << " " << angulo << " " << valor 
+                        << " " << x << " " << y << " " << z << std::endl;
             }
         }
     }
     
     archivo.close();
-    std::cout << "Mapa de influencia guardado: " << filename << std::endl;
+    std::cout << "Mapa de influencia COMPLETO guardado: " << filename 
+              << " (" << altura * radio * sectores << " puntos)" << std::endl;
+}
+
+// Método adicional para guardar la geometría de la olla (solo una vez)
+void MallaBurbujas3D::guardarGeometriaOlla(const Cilindro3D& cilindro) const {
+    std::string filename = carpeta_resultados + "/geometria_olla.txt";
+    
+    std::ofstream archivo(filename);
+    if (!archivo.is_open()) {
+        std::cerr << "Error abriendo archivo: " << filename << std::endl;
+        return;
+    }
+    
+    int altura = cilindro.getAltura();
+    int radio = cilindro.getRadio();
+    
+    // Encabezado
+    archivo << "# Geometría de la Olla" << std::endl;
+    archivo << "# Dimensiones: Altura=" << altura << " Radio=" << radio << std::endl;
+    archivo << "# Formato: tipo altura radio x y z" << std::endl;
+    archivo << "# tipo: 0=base, 1=pared, 2=interior" << std::endl;
+    
+    // Guardar puntos de la base
+    for (int r = 0; r < radio; ++r) {
+        for (int theta_idx = 0; theta_idx < 36; ++theta_idx) {
+            double angulo = theta_idx * 2.0 * M_PI / 36;
+            auto pos = cilindro.cilindricasToCartesian(0, r, angulo);
+            archivo << "0 " << 0 << " " << r << " " 
+                    << pos[0] << " " << pos[1] << " " << pos[2] << std::endl;
+        }
+    }
+    
+    // Guardar puntos de la pared
+    for (int h = 0; h < altura; ++h) {
+        for (int theta_idx = 0; theta_idx < 36; ++theta_idx) {
+            double angulo = theta_idx * 2.0 * M_PI / 36;
+            auto pos = cilindro.cilindricasToCartesian(h, radio-1, angulo);
+            archivo << "1 " << h << " " << radio-1 << " " 
+                    << pos[0] << " " << pos[1] << " " << pos[2] << std::endl;
+        }
+    }
+    
+    // Guardar algunos puntos del interior para visualización
+    for (int h = 1; h < altura-1; h += 2) {  // Cada 2 unidades en altura
+        for (int r = 1; r < radio-1; r += 2) {  // Cada 2 unidades en radio
+            for (int theta_idx = 0; theta_idx < 12; ++theta_idx) {  // Cada 30 grados
+                double angulo = theta_idx * 2.0 * M_PI / 12;
+                auto pos = cilindro.cilindricasToCartesian(h, r, angulo);
+                archivo << "2 " << h << " " << r << " " 
+                        << pos[0] << " " << pos[1] << " " << pos[2] << std::endl;
+            }
+        }
+    }
+    
+    archivo.close();
+    std::cout << "Geometría de la olla guardada: " << filename << std::endl;
 }
 
 // Método para guardar estado de las burbujas
@@ -115,24 +179,38 @@ void MallaBurbujas3D::guardarTemperatura(int paso, const Cilindro3D& cilindro) c
     
     int altura = cilindro.getAltura();
     int radio = cilindro.getRadio();
+    int sectores = 36; // Mismo número de sectores que influencia
     
     // Encabezado
     archivo << "# Distribución de Temperatura - Paso: " << paso << std::endl;
-    archivo << "# Dimensiones: Altura=" << altura << " Radio=" << radio << std::endl;
-    archivo << "# Formato: altura radio temperatura" << std::endl;
+    archivo << "# Dimensiones: Altura=" << altura << " Radio=" << radio << " Sectores=" << sectores << std::endl;
+    archivo << "# Formato: altura radio angulo temperatura x y z" << std::endl;
     
-    // Guardar temperatura en cada punto
+    // Guardar temperatura en TODOS los puntos de la malla 3D
     for (int h = 0; h < altura; ++h) {
         for (int r = 0; r < radio; ++r) {
-            double temp = cilindro.getTemperatura(h, r);
-            archivo << h << " " << r << " " << temp << std::endl;
+            for (int theta_idx = 0; theta_idx < sectores; ++theta_idx) {
+                double temp = cilindro.getTemperatura(h, r);
+                double angulo = theta_idx * 2.0 * M_PI / sectores;
+                
+                // Convertir a coordenadas cartesianas
+                auto pos_cartesian = cilindro.cilindricasToCartesian(h, r, angulo);
+                double x = pos_cartesian[0];
+                double y = pos_cartesian[1];
+                double z = pos_cartesian[2];
+                
+                archivo << h << " " << r << " " << angulo << " " << temp
+                        << " " << x << " " << y << " " << z << std::endl;
+            }
         }
     }
     
     archivo.close();
+    std::cout << "Temperatura COMPLETA guardada: " << filename 
+              << " (" << altura * radio * sectores << " puntos)" << std::endl;
 }
 
-// El resto de los métodos permanecen igual...
+// Metodo para generar burbujas
 void MallaBurbujas3D::generarBurbujas() {
     int burbujas_generadas = 0;
     
@@ -310,6 +388,7 @@ void MallaBurbujas3D::verificarCoalescencia() {
         }
     }
 }
+
 
 std::vector<double> MallaBurbujas3D::generarPosicionBase() {
     double theta = dist_angular(generator);

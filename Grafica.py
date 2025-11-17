@@ -3,12 +3,9 @@ import plotly.graph_objects as go
 
 def cargar_datos(archivo):
     # Carga del archivo (omitimos cabecera de 3 líneas)
-    datos = np.loadtxt(archivo, skiprows=3)
-    z, r, theta, influencia = datos.T
-
-    # Conversión a coordenadas cartesianas
-    x = r * np.cos(theta)
-    y = r * np.sin(theta)
+    # altura radio angulo valor_influencia x y z
+    datos = np.loadtxt(archivo, skiprows=4)
+    h, r, theta, influencia, x, y, z = datos.T
 
     return x, y, z, influencia
 

@@ -19,6 +19,6 @@ Burbuja3D.o: Burbuja3D.cpp Burbuja3D.h
 	$(CXX) $(CXXFLAGS) -c Burbuja3D.cpp
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET) *.txt
 
 .PHONY: clean
