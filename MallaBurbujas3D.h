@@ -27,13 +27,17 @@ private:
     std::string carpeta_resultados;
     int paso_actual;
 
+    // Parámetros de física mejorados
+    double factor_conveccion_metal;
+    double factor_conveccion_agua;
+
 public:
     MallaBurbujas3D(Cilindro3D& cil, int max_burbujas, const std::string& carpeta = "resultados");
     
     // Generación de burbujas en superficies
     void generarBurbujas();
     
-    // Movimiento con física mejorada
+    // Movimiento con física mejorada que considera coeficientes diferentes
     void moverBurbujas();
     
     // Coalescencia con radio de influencia
@@ -54,6 +58,7 @@ public:
     void guardarGeometriaOlla(const Cilindro3D& cilindro) const;
     void guardarEstadoBurbujas(int paso) const;
     void guardarTemperatura(int paso, const Cilindro3D& cilindro) const;
+    void guardarCoeficientesDifusividad(const Cilindro3D& cilindro) const; // NUEVO MÉTODO
     
     // Crear la carpeta de resultados
     void crearCarpetaResultados() const;
@@ -62,17 +67,24 @@ public:
     int getPasoActual() const { return paso_actual; }
     void incrementarPaso() { paso_actual++; }
 
+    // Configurar parámetros de física
+    void setFactoresConveccion(double factor_metal, double factor_agua);
+
 private:
     // Métodos auxiliares
     double calcularProbabilidadGeneracion(double h, double r, double theta) const;
     void calcularVelocidadBurbuja(Burbuja3D& burbuja);
     void aplicarConveccion(Burbuja3D& burbuja);
     void aplicarInfluenciaTrayectorias(Burbuja3D& burbuja);
+    void aplicarEfectoCoeficientes(Burbuja3D& burbuja); // NUEVO MÉTODO
     bool estaDentroCilindro(const Burbuja3D& burbuja) const;
     
     // Generar posición aleatoria en superficies
     std::vector<double> generarPosicionBase();
     std::vector<double> generarPosicionPared();
+    
+    // Método para obtener tipo de material en posición de burbuja
+    std::string getTipoMaterial(const Burbuja3D& burbuja) const;
 };
 
 #endif

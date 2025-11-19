@@ -5,7 +5,7 @@ def cargar_datos(archivo):
     # Carga del archivo (omitimos cabecera de 3 líneas)
     # altura radio angulo valor_influencia x y z
     datos = np.loadtxt(archivo, skiprows=4)
-    h, r, theta, influencia, x, y, z = datos.T
+    h, r, theta, influencia, x, y, z, material = datos.T
 
     return x, y, z, influencia
 
