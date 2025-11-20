@@ -13,10 +13,12 @@ Cilindro3D::Cilindro3D(int radio_int, int grosor, int h, double delta_t,
     std::cout << "Inicializando olla - Metal alpha=" << alpha_olla 
               << ", Agua alpha=" << alpha_interior << std::endl;
     
-    // Inicializar temperaturas
+    // Inicializar temperaturas a 20°C (temperatura ambiente)
     temperatura.resize(altura, std::vector<double>(radio_total, 20.0));
     temperatura_nueva = temperatura;
-    fuente_calor.resize(1, std::vector<double>(radio_total, 0.0));
+    
+    // Fuente de calor en toda la base (agua y metal)
+    fuente_calor.resize(altura, std::vector<double>(radio_total, 0.0));
     
     // Inicializar coeficientes
     inicializarMallaCoeficientes();
@@ -25,11 +27,16 @@ Cilindro3D::Cilindro3D(int radio_int, int grosor, int h, double delta_t,
 void Cilindro3D::inicializarMallaCoeficientes() {
     alpha_malla.resize(altura, std::vector<double>(radio_total, alpha_interior));
     
-    // TODO el metal (paredes laterales y base metálica)
+    // Configurar coeficientes para las paredes metálicas
     for (int h = 0; h < altura; ++h) {
         for (int r = radio_interior; r < radio_total; ++r) {
             alpha_malla[h][r] = alpha_olla;
         }
+    }
+    
+    // Base metálica también es metal
+    for (int r = radio_interior; r < radio_total; ++r) {
+        alpha_malla[0][r] = alpha_olla;
     }
 }
 
@@ -37,101 +44,196 @@ void Cilindro3D::evolucionarTemperatura() {
     static int paso_count = 0;
     paso_count++;
 
-    // ========== MODELO FÍSICO SIMPLIFICADO ==========
+    // ========== ECUACIÓN DE CALOR MEJORADA ==========
     
-    // 1. APLICAR CALOR EN TODA LA BASE (agua Y metal)
-    for (int r = 0; r < radio_total; ++r) {
-        if (r < radio_interior) {
-            // Base interior - fuente principal
-            temperatura_nueva[0][r] = temperatura[0][r] + fuente_calor[0][r] * dt;
-        } else {
-            // Base metálica - también recibe calor directo (pero menos)
-            double potencia_metal = fuente_calor[0][radio_interior-1] * 0.7 * dt;
-            temperatura_nueva[0][r] = temperatura[0][r] + potencia_metal;
-        }
-        
-        // Limitar temperatura base
-        if (temperatura_nueva[0][r] > 120.0) temperatura_nueva[0][r] = 120.0;
-    }
-
-    // 2. PROPAGACIÓN VERTICAL EN PAREDES METÁLICAS (MUY RÁPIDA)
-    for (int r = radio_interior; r < radio_total; ++r) {
-        for (int h = 1; h < altura; ++h) {
-            // El metal conduce el calor casi instantáneamente hacia arriba
-            double temp_base = temperatura_nueva[0][r];
-            double factor_atenuacion = 0.85; // Muy poco atenuación
-            
-            // La temperatura en la pared es casi igual a la base, con pequeña atenuación
-            temperatura_nueva[h][r] = 20.0 + (temp_base - 20.0) * pow(factor_atenuacion, h);
-            
-            // Mínimo 40°C si la base está caliente
-            if (temp_base > 80.0 && temperatura_nueva[h][r] < 40.0) {
-                temperatura_nueva[h][r] = 40.0 + h * 2.0;
-            }
-        }
-    }
-
-    // 3. PROPAGACIÓN EN AGUA (más lenta, solo convección/difusión)
-    for (int r = 0; r < radio_interior; ++r) {
-        for (int h = 1; h < altura; ++h) {
-            double temp_inferior = temperatura_nueva[h-1][r];
-            double temp_actual = temperatura[h][r];
-            
-            // El agua se calienta más lentamente desde abajo
-            double factor_agua = 0.3; // Mucho más lento que el metal
-            
-            temperatura_nueva[h][r] = temp_actual + factor_agua * (temp_inferior - temp_actual);
-            
-            // Transferencia desde paredes calientes
-            if (r == radio_interior - 1) {
-                double temp_pared = temperatura_nueva[h][radio_interior];
-                double transferencia_pared = 0.4 * (temp_pared - temp_actual);
-                temperatura_nueva[h][r] += transferencia_pared;
-            }
-            
-            // Pérdidas en superficie
-            if (h == altura - 1) {
-                temperatura_nueva[h][r] -= 0.05 * (temp_actual - 20.0);
-            }
-        }
-    }
-
-    // 4. TRANSFERENCIA LATERAL AGUA ↔ PARED
-    for (int h = 1; h < altura; ++h) {
-        double temp_agua_borde = temperatura_nueva[h][radio_interior - 1];
-        double temp_pared_interior = temperatura_nueva[h][radio_interior];
-        
-        // Equilibrar temperaturas en la interfase
-        double promedio = (temp_agua_borde + temp_pared_interior) / 2.0;
-        temperatura_nueva[h][radio_interior - 1] = promedio * 0.9;
-        temperatura_nueva[h][radio_interior] = promedio * 1.1;
-    }
-
-    // 5. PÉRDIDAS EN PARED EXTERIOR
-    for (int h = 0; h < altura; ++h) {
-        double temp_pared = temperatura_nueva[h][radio_total - 1];
-        double perdida = 0.08 * (temp_pared - 20.0);
-        temperatura_nueva[h][radio_total - 1] -= perdida;
-    }
-
-    // 6. ESTABILIDAD
     for (int h = 0; h < altura; ++h) {
         for (int r = 0; r < radio_total; ++r) {
-            if (temperatura_nueva[h][r] < 20.0) temperatura_nueva[h][r] = 20.0;
-            if (temperatura_nueva[h][r] > 150.0) temperatura_nueva[h][r] = 150.0;
+            double alpha = alpha_malla[h][r];
+            double laplaciano = 0.0;
+            double termino_fuente = 0.0;
+
+            // ========== FUENTE DE CALOR SOLO EN BASE ==========
+            if (h == 0) {
+                if (r < radio_interior) {
+                    termino_fuente = fuente_calor[0][r];
+                } else {
+                    // Base metálica recibe calor de la zona de agua adyacente
+                    termino_fuente = fuente_calor[0][radio_interior - 1] * 0.6;
+                }
+            }
+
+            // ========== CORRECCIÓN CRÍTICA: LAPLACIANO EN COORDENADAS CILÍNDRICAS ==========
+            // ∇²T = ∂²T/∂r² + (1/r)∂T/∂r + ∂²T/∂z²
+            
+            // TÉRMINO RADIAL: ∂²T/∂r² + (1/r)∂T/∂r
+            if (r > 0 && r < radio_total - 1) {
+                // Derivada segunda radial estándar
+                double d2T_dr2 = temperatura[h][r-1] - 2.0 * temperatura[h][r] + temperatura[h][r+1];
+                
+                // Derivada primera radial (CORREGIDA: evitar división por cero)
+                double dT_dr = (temperatura[h][r+1] - temperatura[h][r-1]) / 2.0;
+                double termino_1sobre_r = (r > 0) ? dT_dr / (r + 1e-12) : 0.0; // +1e-12 evita división por cero
+                
+                laplaciano += d2T_dr2 + termino_1sobre_r;
+            }
+            else if (r == 0) {
+                // EN EL EJE: usar desarrollo de Taylor para coordenadas cilíndricas
+                // En r=0, por simetría: ∂T/∂r = 0 y ∇²T = 2 * ∂²T/∂r²
+                laplaciano += 4.0 * (temperatura[h][1] - temperatura[h][0]);
+            }
+            else if (r == radio_total - 1) {
+                // PARED EXTERIOR: condición de Neumann (pérdidas)
+                double perdida = 0.05 * (20.0 - temperatura[h][r]);
+                laplaciano += 2.0 * (temperatura[h][r-1] - temperatura[h][r] - perdida);
+            }
+
+            // ========== TÉRMINO VERTICAL MEJORADO ==========
+            if (h > 0 && h < altura - 1) {
+                // Conducción vertical estándar
+                laplaciano += temperatura[h-1][r] - 2.0 * temperatura[h][r] + temperatura[h+1][r];
+            }
+            else if (h == 0 && altura > 1) {
+                // BASE: incluir conducción hacia arriba + fuente
+                laplaciano += temperatura[1][r] - temperatura[0][r];
+            }
+            else if (h == altura - 1 && altura > 1) {
+                // SUPERFICIE: pérdidas por convección
+                double perdida_superior = 0.02 * (20.0 - temperatura[h][r]);
+                laplaciano += temperatura[h-1][r] - temperatura[h][r] - perdida_superior;
+            }
+
+            // ========== APLICAR ECUACIÓN DE CALOR ==========
+            temperatura_nueva[h][r] = temperatura[h][r] + alpha * dt * laplaciano + termino_fuente * dt;
         }
     }
 
+    // ========== CORRECCIÓN ESPECIAL PARA PAREDES METÁLICAS ==========
+    // ¡ESTA ES LA CLAVE PARA EVITAR EL PATRÓN DE "PUNTOS"!
+    
+    // 1. CONDUCCIÓN MUY EFICIENTE EN PAREDES VERTICALES
+    for (int r = radio_interior; r < radio_total; ++r) {
+        // La base metálica calienta las paredes
+        double temp_base_pared = temperatura_nueva[0][r];
+        
+        for (int h = 1; h < altura; ++h) {
+            // Conducción vertical MUY eficiente en metal
+            double factor_conduccion_metal = 0.7; // 70% de transferencia por paso
+            
+            // Suavizado para evitar patrones de puntos
+            double temp_objetivo = temp_base_pared * (1.0 - 0.1 * h/altura) + 20.0 * (0.1 * h/altura);
+            
+            temperatura_nueva[h][r] = temperatura_nueva[h][r] * (1.0 - factor_conduccion_metal) 
+                                    + temp_objetivo * factor_conduccion_metal;
+        }
+    }
+    
+    // 2. CONDUCCIÓN HORIZONTAL EN PAREDES (evita patrones)
+    for (int h = 0; h < altura; ++h) {
+        for (int r = radio_interior + 1; r < radio_total - 1; ++r) {
+            // Suavizado horizontal en paredes
+            double promedio_horizontal = (temperatura_nueva[h][r-1] + temperatura_nueva[h][r+1]) / 2.0;
+            double factor_suavizado = 0.3;
+            temperatura_nueva[h][r] = temperatura_nueva[h][r] * (1.0 - factor_suavizado) 
+                                    + promedio_horizontal * factor_suavizado;
+        }
+    }
+
+    // 3. ACOPLAMIENTO FUERTE AGUA-PARED
+    for (int h = 1; h < altura; ++h) {
+        if (radio_interior > 0) {
+            double T_agua = temperatura_nueva[h][radio_interior - 1];
+            double T_pared = temperatura_nueva[h][radio_interior];
+            
+            // Transferencia eficiente en la interfase
+            double k_acoplamiento = 0.4;
+            double transferencia = k_acoplamiento * (T_pared - T_agua);
+            
+            temperatura_nueva[h][radio_interior - 1] += transferencia;
+            temperatura_nueva[h][radio_interior] -= transferencia * 0.5;
+        }
+    }
+
+    // ========== MEZCLA CONVECTIVA SUAVIZADA ==========
+    for (int r = 0; r < radio_interior; ++r) {
+        for (int h = 1; h < altura - 1; ++h) {
+            // Mezcla más suave para evitar patrones artificiales
+            double mezcla = 0.08; // Reducido de 0.15 a 0.08
+            
+            // Promedio con vecinos inmediatos
+            double temp_promedio = (temperatura_nueva[h-1][r] + temperatura_nueva[h+1][r] +
+                                  temperatura_nueva[h][std::max(0, r-1)] + 
+                                  temperatura_nueva[h][std::min(radio_interior-1, r+1)]) / 4.0;
+            
+            temperatura_nueva[h][r] = temperatura_nueva[h][r] * (1.0 - mezcla) 
+                                    + temp_promedio * mezcla;
+        }
+    }
+
+    // ========== TRANSFERENCIA VERTICAL EN EL EJE (MEJORADA) ==========
+    for (int h = 1; h < altura; ++h) {
+        // El centro se calienta desde la base, pero de forma más física
+        double temp_base_centro = temperatura_nueva[0][0];
+        double factor_transferencia_vertical = 0.25 * (1.0 - (double)h/altura); // Disminuye con la altura
+        
+        temperatura_nueva[h][0] = temperatura_nueva[h][0] * (1.0 - factor_transferencia_vertical) 
+                                + temp_base_centro * factor_transferencia_vertical;
+    }
+
+    // ========== ESTABILIDAD Y LÍMITES ==========
+    for (int h = 0; h < altura; ++h) {
+        for (int r = 0; r < radio_total; ++r) {
+            // Límites físicos
+            temperatura_nueva[h][r] = std::max(20.0, std::min(120.0, temperatura_nueva[h][r]));
+            
+            // Suavizado final adicional para paredes (elimina patrones residuales)
+            if (r >= radio_interior && h > 0 && h < altura - 1) {
+                double suavizado_final = 0.1 * (temperatura_nueva[h-1][r] + temperatura_nueva[h+1][r] 
+                                            - 2.0 * temperatura_nueva[h][r]);
+                temperatura_nueva[h][r] += suavizado_final * 0.1;
+            }
+        }
+    }
+
+    // ========== ACTUALIZAR ==========
     temperatura = temperatura_nueva;
 
-    // Diagnóstico cada 20 pasos
-    if (paso_count % 20 == 0) {
-        std::cout << "Paso " << paso_count << " - Temperaturas clave:" << std::endl;
-        std::cout << "  Base centro: " << temperatura[0][0] << "°C" << std::endl;
-        std::cout << "  Base borde agua: " << temperatura[0][radio_interior-1] << "°C" << std::endl;
-        std::cout << "  Base metal: " << temperatura[0][radio_interior] << "°C" << std::endl;
-        std::cout << "  Pared h=10: " << temperatura[10][radio_interior] << "°C" << std::endl;
-        std::cout << "  Pared h=20: " << temperatura[20][radio_interior] << "°C" << std::endl;
+    // ========== DIAGNÓSTICO MEJORADO ==========
+    if (paso_count % 25 == 0) {
+        std::cout << "=== DIAGNÓSTICO PASO " << paso_count << " ===" << std::endl;
+        
+        // Temperaturas en el agua
+        std::cout << "AGUA - Centro (r=0):" << std::endl;
+        for (int h = 0; h < altura; h += altura/4) {
+            std::cout << "  h=" << h << ": " << getTemperatura(h, 0) << "°C";
+            if (h > 0) {
+                double diff_base = getTemperatura(h, 0) - getTemperatura(0, 0);
+                std::cout << " (diff_base=" << diff_base << "°C)";
+            }
+            std::cout << std::endl;
+        }
+        
+        // Temperaturas en paredes
+        std::cout << "PAREDES (r=" << radio_interior << "):" << std::endl;
+        for (int h = 0; h < altura; h += altura/4) {
+            std::cout << "  h=" << h << ": " << getTemperatura(h, radio_interior) << "°C";
+            if (h > 0) {
+                double diff_base = getTemperatura(h, radio_interior) - getTemperatura(0, radio_interior);
+                std::cout << " (diff_base=" << diff_base << "°C)";
+            }
+            std::cout << std::endl;
+        }
+        
+        // Verificar uniformidad de paredes
+        std::cout << "UNIFORMIDAD PAREDES:" << std::endl;
+        for (int h = altura/2; h <= altura/2; h += altura/4) {
+            double min_temp = 1000.0, max_temp = -1000.0;
+            for (int r = radio_interior; r < radio_total; ++r) {
+                min_temp = std::min(min_temp, getTemperatura(h, r));
+                max_temp = std::max(max_temp, getTemperatura(h, r));
+            }
+            std::cout << "  h=" << h << ": min=" << min_temp << "°C, max=" << max_temp 
+                      << "°C, variación=" << (max_temp - min_temp) << "°C" << std::endl;
+        }
     }
 }
 
@@ -193,30 +295,31 @@ bool Cilindro3D::estaEnPared(double x, double y, double z) const {
 }
 
 void Cilindro3D::configurarFuenteUniforme(double potencia) {
-    for (int r = 0; r < radio_total; ++r) {
-        if (r < radio_interior) {
-            fuente_calor[0][r] = potencia;
-        }
+    for (int r = 0; r < radio_interior; ++r) {
+        fuente_calor[0][r] = potencia;
     }
+    std::cout << "Fuente uniforme configurada: " << potencia << " K/s" << std::endl;
 }
 
 void Cilindro3D::configurarFuenteGaussiana(double potencia_centro, double sigma) {
     int centro = radio_interior / 2;
     
-    for (int r = 0; r < radio_total; ++r) {
-        if (r < radio_interior) {
-            double distancia = std::abs(r - centro);
-            fuente_calor[0][r] = potencia_centro * std::exp(-distancia*distancia/(2*sigma*sigma));
-        }
+    for (int r = 0; r < radio_interior; ++r) {
+        double distancia = std::abs(r - centro);
+        fuente_calor[0][r] = potencia_centro * std::exp(-distancia*distancia/(2*sigma*sigma));
     }
+    std::cout << "Fuente gaussiana configurada: centro=" << potencia_centro 
+              << " K/s, sigma=" << sigma << std::endl;
 }
 
 void Cilindro3D::configurarFuenteAnular(double potencia, double radio_int, double radio_ext) {
-    for (int r = 0; r < radio_total; ++r) {
-        if (r < radio_interior && r >= radio_int && r <= radio_ext) {
+    for (int r = 0; r < radio_interior; ++r) {
+        if (r >= radio_int && r <= radio_ext) {
             fuente_calor[0][r] = potencia;
         }
     }
+    std::cout << "Fuente anular configurada: " << potencia << " K/s, r=[" 
+              << radio_int << "," << radio_ext << "]" << std::endl;
 }
 
 void Cilindro3D::diagnosticoParedesCompleto() const {
@@ -255,6 +358,13 @@ void Cilindro3D::diagnosticoCoeficientes() const {
     std::cout << "Base metal: " << temperatura[0][radio_interior] << "°C" << std::endl;
     std::cout << "Pared media: " << temperatura[altura/2][radio_interior] << "°C" << std::endl;
     std::cout << "Pared superior: " << temperatura[altura-1][radio_interior] << "°C" << std::endl;
+    
+    // Verificar estabilidad numérica
+    double Fo_agua = alpha_interior * dt;
+    double Fo_metal = alpha_olla * dt;
+    std::cout << "Números de Fourier efectivos:" << std::endl;
+    std::cout << "  Agua: " << Fo_agua << std::endl;
+    std::cout << "  Metal: " << Fo_metal << std::endl;
 }
 
 void Cilindro3D::imprimirTemperaturaBase() const {
@@ -274,7 +384,7 @@ void Cilindro3D::setDistribucionTemperaturaInicial(const std::vector<std::vector
 }
 
 void Cilindro3D::setFuenteCalorBase(const std::vector<std::vector<double>>& fuente) {
-    if (fuente.size() == 1 && fuente[0].size() == radio_total) {
+    if (fuente.size() == altura && fuente[0].size() == radio_total) {
         fuente_calor = fuente;
     }
 }
