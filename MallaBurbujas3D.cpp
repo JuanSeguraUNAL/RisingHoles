@@ -408,7 +408,7 @@ std::vector<double> MallaBurbujas3D::generarPosicionBase() {
 
 std::vector<double> MallaBurbujas3D::generarPosicionPared() {
     double theta = dist_angular(generator);
-    double z = distribution(generator) * (cilindro.getAltura() - 1);
+    double z = distribution(generator) * (cilindro.getAltura() );
     // Generar en la pared interior (límite entre agua y metal)
     double r = cilindro.getRadioInterior() - 0.1;
     

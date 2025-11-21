@@ -16,8 +16,8 @@ def main():
     mask = (z == z_max) 
 
     r_top = r[mask]
-    x_top = x[mask]
-    y_top = y[mask]
+    x_top = x[mask] / np.max(r_top)
+    y_top = y[mask] / np.max(r_top)
     influencia_top = influencia[mask]
 
     # --- Crear malla regular para imshow ---
@@ -46,7 +46,9 @@ def main():
 
     plt.xlabel("X")
     plt.ylabel("Y")
-    plt.title(f"Mapa de influencia en plano XY (z = {z_max})")
+    plt.title(f"Scalar Bubble Field (z = {z_max})")
+    plt.tight_layout()
+    plt.savefig('Chimneys.png', dpi=300)
     plt.show()
 
     r_unique = np.unique(r_top)
@@ -57,8 +59,9 @@ def main():
 
     fig, ax = plt.subplots(figsize=(10,6))
     ax.semilogy(r_unique / np.max(r_unique), infl_mean, 'k-', lw=2)
-    ax.set_xlabel('Normalized radius')
-    ax.set_ylabel('Influence')
+    ax.set_xlabel('Normalized radius', fontsize=14)
+    ax.set_ylabel('Influence', fontsize=14)
+    ax.set_xlim(0, 0.8)
     plt.show()
 
 main()
