@@ -115,11 +115,11 @@ void Cilindro3D::evolucionarTemperatura() {
         double temp_base_pared = temperatura_nueva[0][r];
         
         for (int h = 1; h < altura; ++h) {
-            // Conducción vertical MUY eficiente en metal - MÁS FUERTE
-            double factor_conduccion_metal = 0.8; // Aumentado de 0.7 a 0.8 (80% de transferencia)
+            // Conducción vertical MUY eficiente en metal
+            double factor_conduccion_metal = 0.8;
             
             // Suavizado para evitar patrones de puntos
-            double temp_objetivo = temp_base_pared * (1.0 - 0.08 * h/altura) + 20.0 * (0.08 * h/altura); // Menor atenuación
+            double temp_objetivo = temp_base_pared * (1.0 - 0.08 * h/altura) + 20.0 * (0.08 * h/altura);
             
             temperatura_nueva[h][r] = temperatura_nueva[h][r] * (1.0 - factor_conduccion_metal) 
                                     + temp_objetivo * factor_conduccion_metal;
@@ -128,7 +128,7 @@ void Cilindro3D::evolucionarTemperatura() {
             if (r == radio_interior && h > 0) {
                 double temp_agua_adyacente = temperatura_nueva[h][radio_interior - 1];
                 if (temperatura_nueva[h][r] < temp_agua_adyacente + 3.0) {
-                    temperatura_nueva[h][r] = temp_agua_adyacente + 3.0; // Mínimo 3°C más caliente
+                    temperatura_nueva[h][r] = temp_agua_adyacente + 3.0;
                 }
             }
         }
@@ -153,28 +153,28 @@ void Cilindro3D::evolucionarTemperatura() {
             
             // Solo transferir calor si la pared está más caliente
             if (T_pared > T_agua) {
-                double k_acoplamiento = 0.3; // Reducido de 0.4 a 0.3
+                double k_acoplamiento = 0.25; // REDUCIDO de 0.3 a 0.25
                 double transferencia = k_acoplamiento * (T_pared - T_agua);
                 
                 temperatura_nueva[h][radio_interior - 1] += transferencia;
                 // La pared se enfría menos que antes
-                temperatura_nueva[h][radio_interior] -= transferencia * 0.3; // Reducido de 0.5 a 0.3
+                temperatura_nueva[h][radio_interior] -= transferencia * 0.3;
             }
         }
     }
 
     // ========== CORRECCIÓN PARA EL AGUA (MÁS CONSERVADORA) ==========
     
-    // 1. CONDUCCIÓN VERTICAL DESDE LA BASE (MÁS SUAVE)
+    // 1. CONDUCCIÓN VERTICAL DESDE LA BASE (MUCHO MÁS SUAVE)
     for (int r = 0; r < radio_interior; ++r) {
         double temp_base = temperatura_nueva[0][r];
         
         for (int h = 1; h < altura; ++h) {
-            // Factor más conservador para evitar que el agua se caliente demasiado
-            double factor_vertical = 0.25 * (1.0 - 0.8 * (double)h/altura); // Reducido de 0.35 a 0.25
+            // Factor MUCHO más conservador
+            double factor_vertical = 0.15 * (1.0 - 0.9 * (double)h/altura); // REDUCIDO de 0.25 a 0.15
             
-            // Solo aplicar si la base está significativamente más caliente
-            if (temp_base > temperatura_nueva[h][r] + 8.0) { // Aumentado el umbral de 5.0 a 8.0
+            // Solo aplicar si la base está MUCHO más caliente
+            if (temp_base > temperatura_nueva[h][r] + 12.0) { // AUMENTADO de 8.0 a 12.0
                 temperatura_nueva[h][r] = temperatura_nueva[h][r] * (1.0 - factor_vertical) 
                                         + temp_base * factor_vertical;
             }
@@ -189,14 +189,14 @@ void Cilindro3D::evolucionarTemperatura() {
             double gradiente_der = temperatura_nueva[h][r+1] - temperatura_nueva[h][r];
             
             // Aplicar conducción radial más suave
-            double factor_conduccion_radial = 0.1; // Reducido de 0.15 a 0.1
+            double factor_conduccion_radial = 0.06; // REDUCIDO de 0.1 a 0.06
             
-            if (std::abs(gradiente_izq) > 3.0) { // Aumentado el umbral de 2.0 a 3.0
+            if (std::abs(gradiente_izq) > 5.0) { // AUMENTADO de 3.0 a 5.0
                 temperatura_nueva[h][r] += factor_conduccion_radial * gradiente_izq;
                 temperatura_nueva[h][r-1] -= factor_conduccion_radial * gradiente_izq * 0.5;
             }
             
-            if (std::abs(gradiente_der) > 3.0) { // Aumentado el umbral de 2.0 a 3.0
+            if (std::abs(gradiente_der) > 5.0) { // AUMENTADO de 3.0 a 5.0
                 temperatura_nueva[h][r] += factor_conduccion_radial * gradiente_der;
                 temperatura_nueva[h][r+1] -= factor_conduccion_radial * gradiente_der * 0.5;
             }
@@ -214,8 +214,8 @@ void Cilindro3D::evolucionarTemperatura() {
             diferencia_max = std::max(diferencia_max, std::abs(temperatura_nueva[h][r] - temperatura_nueva[h][r+1]));
             
             // Convección más conservadora
-            double fuerza_conveccion = 0.03 + 0.07 * (diferencia_max / 40.0); // Reducida
-            fuerza_conveccion = std::min(0.15, fuerza_conveccion); // Reducido el máximo
+            double fuerza_conveccion = 0.02 + 0.05 * (diferencia_max / 50.0); // REDUCIDA
+            fuerza_conveccion = std::min(0.12, fuerza_conveccion); // REDUCIDO el máximo
             
             // Mezcla con vecinos ponderada
             double temp_promedio = (
@@ -239,7 +239,7 @@ void Cilindro3D::evolucionarTemperatura() {
                 // Solo transferir si la pared está más caliente
                 if (temp_pared > temp_agua) {
                     // Transferencia más controlada
-                    double factor_penetracion = 0.3 / (distancia_a_pared + 0.5); // Reducido de 0.5 a 0.3
+                    double factor_penetracion = 0.2 / (distancia_a_pared + 0.5); // REDUCIDO de 0.3 a 0.2
                     double transferencia = factor_penetracion * (temp_pared - temp_agua) * dt;
                     
                     temperatura_nueva[h][r] += transferencia;
@@ -255,7 +255,7 @@ void Cilindro3D::evolucionarTemperatura() {
             if (r >= radio_interior - 2) {
                 double temp_pared_adyacente = temperatura_nueva[h][radio_interior];
                 if (temperatura_nueva[h][r] > temp_pared_adyacente - 2.0) {
-                    temperatura_nueva[h][r] = temp_pared_adyacente - 2.0; // Mínimo 2°C más frío
+                    temperatura_nueva[h][r] = temp_pared_adyacente - 2.0;
                 }
             }
         }
@@ -274,7 +274,7 @@ void Cilindro3D::evolucionarTemperatura() {
 
     // ========== DIAGNÓSTICO MEJORADO ==========
     if (paso_count % 25 == 0) {
-        std::cout << "=== DIAGNÓSTICO BALANCEADO PASO " << paso_count << " ===" << std::endl;
+        std::cout << "=== DIAGNÓSTICO TEMPERATURAS REDUCIDAS PASO " << paso_count << " ===" << std::endl;
         
         // Comparación directa agua vs pared
         std::cout << "COMPARACIÓN AGUA vs PARED:" << std::endl;
@@ -285,26 +285,33 @@ void Cilindro3D::evolucionarTemperatura() {
             std::cout << "  h=" << h << ": Agua=" << temp_agua_borde << "°C, Pared=" << temp_pared 
                       << "°C, Diferencia=" << diferencia << "°C";
             if (diferencia < 0) {
-                std::cout << " ⚠️ PARED MÁS FRÍA!"; // Esto no debería pasar
+                std::cout << " ⚠️ PARED MÁS FRÍA!";
             }
             std::cout << std::endl;
         }
         
         // Distribución en agua
         std::cout << "DISTRIBUCIÓN EN AGUA (h=" << altura/2 << "):" << std::endl;
+        double min_temp = 1000.0, max_temp = -1000.0;
         for (int r = 0; r < radio_interior; r += 2) {
-            std::cout << "  r=" << r << ": " << getTemperatura(altura/2, r) << "°C" << std::endl;
+            double temp = getTemperatura(altura/2, r);
+            min_temp = std::min(min_temp, temp);
+            max_temp = std::max(max_temp, temp);
+            std::cout << "  r=" << r << ": " << temp << "°C" << std::endl;
         }
+        std::cout << "  Variación en agua: " << (max_temp - min_temp) << "°C" << std::endl;
         
-        // Eficiencias
-        double temp_base_agua = getTemperatura(0, radio_interior - 1);
-        double temp_base_pared = getTemperatura(0, radio_interior);
-        double temp_medio_agua = getTemperatura(altura/2, radio_interior - 1);
-        double temp_medio_pared = getTemperatura(altura/2, radio_interior);
-        
-        std::cout << "EFICIENCIAS:" << std::endl;
-        std::cout << "  Conducción vertical agua: " << (temp_medio_agua / temp_base_agua * 100) << "%" << std::endl;
-        std::cout << "  Conducción vertical pared: " << (temp_medio_pared / temp_base_pared * 100) << "%" << std::endl;
+        // Temperaturas máximas
+        double max_agua = 0.0, max_pared = 0.0;
+        for (int h = 0; h < altura; ++h) {
+            for (int r = 0; r < radio_interior; ++r) {
+                max_agua = std::max(max_agua, getTemperatura(h, r));
+            }
+            for (int r = radio_interior; r < radio_total; ++r) {
+                max_pared = std::max(max_pared, getTemperatura(h, r));
+            }
+        }
+        std::cout << "TEMPERATURAS MÁXIMAS: Agua=" << max_agua << "°C, Pared=" << max_pared << "°C" << std::endl;
     }
 }
 

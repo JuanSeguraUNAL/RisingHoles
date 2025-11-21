@@ -6,9 +6,9 @@
 
 int main() {
     // Parámetros de simulación 3D - CON COEFICIENTES DIFERENTES
-    const int RADIO_INTERIOR = 24; 
-    const int GROSOR_PARED = 6;   
-    const int ALTURA_OLLA = 40;
+    const int RADIO_INTERIOR = 12; 
+    const int GROSOR_PARED = 3;   
+    const int ALTURA_OLLA = 20;
     const double DT = 0.05;
     
     // COEFICIENTES DE DIFUSIVIDAD TÉRMICA DIFERENTES
@@ -24,7 +24,7 @@ int main() {
     
     // Crear cilindro 3D con coeficientes diferentes
     Cilindro3D olla(RADIO_INTERIOR, GROSOR_PARED, ALTURA_OLLA, DT, ALPHA_METAL, ALPHA_AGUA);
-    olla.configurarFuenteGaussiana(100.0, 4.0);
+    olla.configurarFuenteGaussiana(12.0, 4.0);
     
     // Crear malla de burbujas 3D con carpeta de resultados
     MallaBurbujas3D malla_burbujas(olla, MAX_BURBUJAS_PASO, "resultados_simulacion");
