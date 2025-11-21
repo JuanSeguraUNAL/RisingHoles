@@ -20,7 +20,7 @@ def graficar_plotly(archivo):
                 size=4,
                 color=influencia,
                 colorscale='Inferno',   # Escala de color
-                colorbar=dict(title='Influencia'),
+                colorbar=dict(title='Chimney value'),
                 opacity=0.8
             )
         )
@@ -33,7 +33,7 @@ def graficar_plotly(archivo):
             zaxis_title='Z',
             aspectmode='cube'
         ),
-        title='Campo de influencia de burbujas en 3D',
+        title='Bubble Chimneys',
         template='plotly_dark'
     )
 

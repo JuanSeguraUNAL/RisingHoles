@@ -6,20 +6,19 @@
 
 int main() {
     // Parámetros de simulación 3D - CON COEFICIENTES DIFERENTES
-    const int RADIO_INTERIOR = 12; 
-    const int GROSOR_PARED = 3;   
-    const int ALTURA_OLLA = 25;
+    const int RADIO_INTERIOR = 24; 
+    const int GROSOR_PARED = 6;   
+    const int ALTURA_OLLA = 40;
     const double DT = 0.05;
     
     // COEFICIENTES DE DIFUSIVIDAD TÉRMICA DIFERENTES
     // Valores típicos (puedes ajustarlos según el material específico):
     // - Agua: ~0.15 mm²/s
     // - Acero inoxidable: ~4-5 mm²/s  
-    // - Aluminio: ~85 mm²/s
     const double ALPHA_METAL = 5;    // Mayor difusividad para metal
     const double ALPHA_AGUA = 0.15;    // Menor difusividad para agua/arroz
     
-    const int MAX_BURBUJAS_PASO = 15;
+    const int MAX_BURBUJAS_PASO = 6;
     const int PASOS_TOTALES = 500;
     const int INTERVALO_GUARDADO = 5;
     

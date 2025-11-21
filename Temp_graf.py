@@ -20,7 +20,7 @@ def graficar_plotly(archivo):
                 size=4,
                 color=temperatura,
                 colorscale='Inferno',   # Escala de color
-                colorbar=dict(title='Temperatura [°C]'),
+                colorbar=dict(title='Temperature [°C]'),
                 opacity=0.8
             )
         )
@@ -33,10 +33,10 @@ def graficar_plotly(archivo):
             zaxis_title='Z',
             aspectmode='cube'
         ),
-        title='Temperatura',
+        title='Temperature',
         template='plotly_dark'
     )
 
     fig.show()
 
-graficar_plotly("resultados_simulacion/temperatura/temperatura_paso_0.txt")
+graficar_plotly("resultados_simulacion/temperatura/temperatura_paso_500.txt")
